@@ -10,6 +10,7 @@ public class TrafficLightController
     private readonly TrafficLight _goatLight;
     private string? _requestedPet;
     private string _currentPet;
+    private bool _started;
 
     private readonly Dictionary<string, bool> _flaps = new()
     {
@@ -28,29 +29,56 @@ public class TrafficLightController
         _goatLight = goatLight;
     }
 
-    public void StartInputListener()
+    private void InputLoop()
     {
-        Task.Run(() =>
-            {
-                while (true)
-                {
-                    var key = Console.ReadKey(true).KeyChar;
+        bool started = false;
 
-                    switch (char.ToLower(key))
-                    {
-                        case 'c':
-                            Request("Cow");
-                            break;
-                        case 's':
-                            Request("Sheep");
-                            break;
-                        case 'g':
-                            Request("Goat");
-                            break;
-                    }
+        while (true)
+        {
+            var key = Console.ReadKey(true).KeyChar;
+
+            if (!started)
+            {
+                switch (char.ToLower(key))
+                {
+                    case 'c':
+                        _currentPet = "Cow";
+                        started = true;
+                        break;
+                    case 's':
+                        _currentPet = "Sheep";
+                        started = true;
+                        break;
+                    case 'g':
+                        _currentPet = "Goat";
+                        started = true;
+                        break;
                 }
+                
+                Console.WriteLine($"Started with: {_currentPet}");
+
+                _started = true;
+                continue;
             }
-        );
+            
+            HandleRequest(key);
+        }
+    }
+
+    private void HandleRequest(char key)
+    {
+        switch (char.ToLower(key))
+        {
+            case 'c':
+                Request("Cow");
+                break;
+            case 's':
+                Request("Sheep");
+                break;
+            case 'g':
+                Request("Goat");
+                break;
+        }
     }
 
     private void Request(string pet)
@@ -113,11 +141,14 @@ public class TrafficLightController
 
     public async Task StartAsync()
     {
-        _currentPet = AskStartPet();
+        Console.WriteLine("Let`s start! (c - Cow, s - Sheep, g - Goat)\n");
         
-        Console.WriteLine($"Started with: {_currentPet}");
+        Task.Run(InputLoop);
 
-        StartInputListener();
+        while (!_started)
+        {
+            await Task.Delay(50);
+        }
         
         while (true)
         {
@@ -160,28 +191,5 @@ public class TrafficLightController
         _cowLight.SetColor(activePet == "Cow" ? activeColor : TrafficLightColor.Red);
         _sheepLight.SetColor(activePet == "Sheep" ? activeColor : TrafficLightColor.Red);
         _goatLight.SetColor(activePet == "Goat" ? activeColor : TrafficLightColor.Red);
-    }
-    
-    
-    public string AskStartPet()
-    {
-        while (true)
-        {
-            Console.WriteLine("Let's start with (c - Cow, s - Sheep, g - Goat)");
-            
-            var key = Console.ReadKey(true).KeyChar;
-
-            switch (char.ToLower(key))
-            {
-                case 'c':
-                    return "Cow";
-                case 's':
-                    return "Sheep";
-                case 'g':
-                    return "Goat";
-            }
-            
-            Console.WriteLine("Incorrect input. Try again.");
-        }
     }
 }

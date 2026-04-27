@@ -10,7 +10,6 @@ class Program
         var goatLight = new TrafficLight("Goat");
 
         var controller = new TrafficLightController(cowLight, sheepLight, goatLight);
-        controller.StartInputListener();
         await controller.StartAsync();
     }
 }
