@@ -11,6 +11,8 @@ public class TrafficLightController
     private string? _requestedPet;
     private string _currentPet;
     private bool _started;
+    private bool _wolvesMode;
+    private CancellationTokenSource _cts = new();
 
     private readonly Dictionary<string, bool> _flaps = new()
     {
@@ -31,34 +33,28 @@ public class TrafficLightController
 
     private void InputLoop()
     {
-        bool started = false;
-
         while (true)
         {
             var key = Console.ReadKey(true).KeyChar;
+            var k = char.ToLower(key);
 
-            if (!started)
+            if (k == 'w')
             {
-                switch (char.ToLower(key))
-                {
-                    case 'c':
-                        _currentPet = "Cow";
-                        started = true;
-                        break;
-                    case 's':
-                        _currentPet = "Sheep";
-                        started = true;
-                        break;
-                    case 'g':
-                        _currentPet = "Goat";
-                        started = true;
-                        break;
-                }
-                
-                Console.WriteLine($"Started with: {_currentPet}");
-
-                _started = true;
+                ToggleWolvesMode();
                 continue;
+            }
+
+            if (string.IsNullOrEmpty(_currentPet))
+            {
+                switch (k)
+                {
+                    case 'c' : _currentPet = "Cow"; break;
+                    case 's' : _currentPet = "Sheep"; break;
+                    case 'g' : _currentPet = "Goat"; break;
+                    default:
+                        Console.WriteLine($"Unknown key {k}");
+                        continue;
+                }
             }
             
             HandleRequest(key);
@@ -67,23 +63,44 @@ public class TrafficLightController
 
     private void HandleRequest(char key)
     {
-        switch (char.ToLower(key))
+        var k = char.ToLower(key);
+        
+        switch (k)
         {
+            case 'w':
+                ToggleWolvesMode();
+                return;
             case 'c':
-                Request("Cow");
-                break;
             case 's':
-                Request("Sheep");
-                break;
             case 'g':
-                Request("Goat");
+                if (_wolvesMode)
+                {
+                    Console.WriteLine("Incorrect");
+                    return;
+                }
                 break;
         }
+
+        switch (k)
+        {
+            case 'c': Request("Cow"); break;
+            case 's': Request("Sheep"); break;
+            case 'g': Request("Goat"); break;
+        }
+    }
+
+    private void ToggleWolvesMode()
+    {
+        _wolvesMode = !_wolvesMode;
+        
+        Console.WriteLine(_wolvesMode ? "Wolves mode ON" : "Wolves mode OFF");
+
+        _cts.Cancel();
     }
 
     private void Request(string pet)
     {
-        Console.WriteLine($"[INPUT] Request from {pet}");
+        Console.WriteLine($"[INPUT] Request from {pet}");   
         _requestedPet = pet;
     }
 
@@ -99,15 +116,6 @@ public class TrafficLightController
         Console.WriteLine($"{DateTime.Now:HH:mm:ss} | {pet}: {color} | Flap: {GetFlapSymbol(pet)}");
     }
 
-    private void ApplyState(string activePet, TrafficLightColor color)
-    {
-        SetLights(activePet, color);
-        
-        RecalculateFlaps();
-        
-        PrintState();
-    }
-
     private void RecalculateFlaps()
     {
         _flaps["Cow"] = _cowLight.Color == TrafficLightColor.Green;
@@ -121,7 +129,7 @@ public class TrafficLightController
         _sheepLight.SetColor(GetTransitionColor("Sheep", from, to));
         _goatLight.SetColor(GetTransitionColor("Goat", from, to));
         
-        PrintState();
+        // PrintState();
     }
 
     private TrafficLightColor GetTransitionColor(string pet, string from, string to)
@@ -136,22 +144,31 @@ public class TrafficLightController
     
     private string GetFlapSymbol(string pet)
     {
-        return _flaps[pet] ? "О" : "З";
+        return _flaps[pet] ? "Оw" : "C";
     }
 
     public async Task StartAsync()
     {
-        Console.WriteLine("Let`s start! (c - Cow, s - Sheep, g - Goat)\n");
+        Console.WriteLine("Let`s start! (c - Cows, s - Sheep, g - Goats)\n");
         
         Task.Run(InputLoop);
-
-        while (!_started)
-        {
-            await Task.Delay(50);
-        }
         
+        Task.Run(StatePrinterLoopAsync);
+
         while (true)
         {
+            if (_wolvesMode)
+            {
+                await EnterWolvesModeAsync();
+                continue;
+            }
+
+            if (string.IsNullOrEmpty(_currentPet))
+            {
+                await Task.Delay(50);
+                continue;
+            }
+            
             await RunCurrentPetAsync();
 
             if (_requestedPet != null && _requestedPet != _currentPet)
@@ -166,8 +183,8 @@ public class TrafficLightController
         Console.WriteLine($"Active: {_currentPet}");
         
         ApplyState(_currentPet, TrafficLightColor.Green);
-        
-        await Task.Delay(15000);
+
+        await SafeDelay(15000);
     }
 
     private async Task SwitchToRequestedAsync()
@@ -176,14 +193,87 @@ public class TrafficLightController
         var to = _requestedPet;
         
         ApplyTransitionState(from, to);
-        await Task.Delay(5000);
+        await SafeDelay(5000);
         
         _currentPet = to;
         _requestedPet = null;
 
         ApplyState(to, TrafficLightColor.Green);
         
-        await Task.Delay(15000);
+        await SafeDelay(15000);
+    }
+
+    private async Task EnterWolvesModeAsync()
+    {
+        var current = _currentPet;
+        
+        ApplyTransitionState(current, current);
+        await SafeDelay(5000);
+
+        ApplyAllRed();
+
+        while (_wolvesMode)
+        {
+            await SafeDelay(100);
+        }
+        
+        // ApplyState(_currentPet, TrafficLightColor.Green);
+        await ExitWolvesModeAsync();
+    }
+
+    private async Task ExitWolvesModeAsync()
+    {
+        var pet = _currentPet;
+        
+        _cowLight.SetColor(pet == "Cow" ? TrafficLightColor.Yellow :  TrafficLightColor.Red);
+        _sheepLight.SetColor(pet == "Sheep" ? TrafficLightColor.Yellow :  TrafficLightColor.Red);
+        _goatLight.SetColor(pet == "Goat" ? TrafficLightColor.Yellow :  TrafficLightColor.Red);
+        
+        // PrintState();
+
+        await SafeDelay(5000);
+        
+        ApplyState(pet, TrafficLightColor.Green);
+    }
+    
+    private void ApplyState(string activePet, TrafficLightColor color)
+    {
+        SetLights(activePet, color);
+        
+        RecalculateFlaps();
+        
+        // PrintState();
+    }
+    
+    private async Task SafeDelay(int ms)
+    {
+        try
+        {
+            await Task.Delay(ms, _cts.Token);
+        }
+        catch (TaskCanceledException)
+        {
+            _cts = new CancellationTokenSource();
+        }
+    }
+
+    private async Task StatePrinterLoopAsync()
+    {
+        while (true)
+        {
+            PrintState();
+            await Task.Delay(1000);
+        }
+    }
+    
+    private void ApplyAllRed()
+    {
+        _cowLight.SetColor(TrafficLightColor.Red);
+        _sheepLight.SetColor(TrafficLightColor.Red);
+        _goatLight.SetColor(TrafficLightColor.Red);
+        
+        RecalculateFlaps();
+        // PrintState();
     }
 
     private void SetLights(string activePet, TrafficLightColor activeColor)

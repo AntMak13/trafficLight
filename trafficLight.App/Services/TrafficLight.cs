@@ -16,7 +16,5 @@ public class TrafficLight
     public void SetColor(TrafficLightColor color)
     {
         Color = color;
-        
-        // Console.WriteLine($"{DateTime.Now:HH:mm:ss} | {Name}: {color}");
     }
 }
